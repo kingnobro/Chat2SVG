@@ -1,4 +1,5 @@
 import sys
+
 sys.path.append("../")
 
 import os
@@ -28,15 +29,15 @@ from utils.util import get_prompt
 def get_dominant_color(pixels, n_colors=5):
     # Reshape the pixels to be a list of RGB values
     pixels = pixels.reshape(-1, 3)
-    
+
     n_colors = min(n_colors, len(pixels))
     kmeans = KMeans(n_clusters=n_colors, random_state=42, n_init=10)
     kmeans.fit(pixels)
-    
+
     # Get the colors and their counts
     colors = kmeans.cluster_centers_.astype(int)
     counts = np.bincount(kmeans.labels_)
-    
+
     # Return the most common color
     dominant_color = tuple(colors[np.argmax(counts)])
     return dominant_color
@@ -51,11 +52,11 @@ def vectorize_and_add_masks(svg: SVG, image: np.ndarray, masks: List[dict]) -> S
         contours = measure.find_contours(binary_mask)
 
         # Subtract all smaller masks from the current mask
-        for smaller_mask in sorted_masks[i+1:]:
+        for smaller_mask in sorted_masks[i + 1:]:
             binary_mask = np.logical_and(binary_mask, np.logical_not(smaller_mask['segmentation']))
 
         # Convert back to uint8
-        binary_mask = binary_mask.astype(np.uint8)        
+        binary_mask = binary_mask.astype(np.uint8)
         pixels = image[binary_mask.astype(bool)]
         color = get_dominant_color(pixels)
         color_hex = '#{:02x}{:02x}{:02x}'.format(*color)
@@ -72,7 +73,7 @@ def vectorize_and_add_masks(svg: SVG, image: np.ndarray, masks: List[dict]) -> S
                 else:
                     path_data.append(f'L {x:.2f} {y:.2f}')
             path_data.append('Z')  # Close the path
-            
+
             svg_path_group = SVGPath.from_str(
                 ' '.join(path_data),
                 fill=True,
@@ -89,43 +90,43 @@ def show_masks(image: np.ndarray, masks: List[dict], output_file: Path, add_bbox
         print("No masks found")
         return
     sorted_masks = sorted(masks, key=lambda x: x['area'], reverse=True)
-    
+
     mask_dir = output_file.with_name(f"{output_file.stem}_masks")
     if mask_dir.exists():
         shutil.rmtree(mask_dir)
     mask_dir.mkdir()
-    
+
     fig, ax = plt.subplots(figsize=(20, 20))
     ax.imshow(image)
-    
+
     for i, ann in enumerate(sorted_masks):
         color = np.concatenate([np.random.random(3), [0.7]])
         mask_image = np.zeros((*image.shape[:2], 4), dtype=np.float32)
         mask_image[ann['segmentation']] = color
-        
+
         mask_fig, mask_ax = plt.subplots(figsize=(10, 10))
         mask_ax.imshow(mask_image)
         mask_ax.axis('off')
-        
+
         stats_text = (
             f"Area: {ann['area']:.2f}\n"
             f"Predicted IoU: {ann['predicted_iou']:.3f}\n"
             f"Stability Score: {ann['stability_score']:.3f}"
         )
-        mask_ax.text(10, 45, stats_text, fontsize=12, color='white', 
+        mask_ax.text(10, 45, stats_text, fontsize=12, color='white',
                      bbox=dict(facecolor='black', alpha=0.5))
-        
+
         plt.savefig(mask_dir / f"mask_{i:03d}.png", bbox_inches='tight', pad_inches=0)
         plt.close(mask_fig)
-        
+
         ax.imshow(mask_image)
 
         if add_bbox:
             bbox = ann['bbox']
-            rect = plt.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3], 
+            rect = plt.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3],
                                  fill=False, edgecolor=color[:3], linewidth=2.6, linestyle='--')
             ax.add_patch(rect)
-    
+
     ax.axis('off')
     plt.savefig(output_file, bbox_inches='tight', pad_inches=0)
     plt.close()
@@ -166,13 +167,13 @@ def select_masks(cfg, masks_template: List[dict], masks_target: List[dict]) -> L
             continue
 
         # Check if the mask is already in masks_template
-        if any(calculate_iou(mask_template['segmentation'], mask_target['segmentation']) > thresh_iou 
+        if any(calculate_iou(mask_template['segmentation'], mask_target['segmentation']) > thresh_iou
                for mask_template in masks_template):
             continue
 
         # Calculate the visible area of the mask
         visible_area = mask_target['segmentation'].copy()
-        for smaller_mask in masks_target[i+1:]:
+        for smaller_mask in masks_target[i + 1:]:
             visible_area = np.logical_and(visible_area, np.logical_not(smaller_mask['segmentation']))
 
         # Calculate the exposed area ratio
@@ -194,16 +195,20 @@ def calculate_iou(mask1: np.ndarray, mask2: np.ndarray) -> float:
     return intersection.sum() / union.sum()
 
 
-def sam_add_paths(cfg, svg: SVG, target_image_path: str, final_svg_path: str, mask_generator_coarse: SamAutomaticMaskGenerator, mask_generator_fine: SamAutomaticMaskGenerator) -> None:
+def sam_add_paths(cfg, svg: SVG, target_image_path: str, final_svg_path: str,
+                  mask_generator_coarse: SamAutomaticMaskGenerator,
+                  mask_generator_fine: SamAutomaticMaskGenerator) -> None:
     template_image_path = f"{cfg.root_folder}/{cfg.target}_template.png"
     output_dir = Path(cfg.sam_folder)
 
-    masks_template, image_template = segment_image(template_image_path, mask_generator_coarse, output_dir / f"segmented_template.png")
+    masks_template, image_template = segment_image(template_image_path, mask_generator_coarse,
+                                                   output_dir / f"segmented_template.png")
     print("masks_template:", len(masks_template))
-    
-    masks_target, image_target = segment_image(target_image_path, mask_generator_fine, output_dir / f"segmented_target.png")
+
+    masks_target, image_target = segment_image(target_image_path, mask_generator_fine,
+                                               output_dir / f"segmented_target.png")
     print("masks_target:", len(masks_target))
-    
+
     masks_added = select_masks(cfg, masks_template, masks_target)
     print("masks_added:", len(masks_added))
 
@@ -228,10 +233,10 @@ def remove_invisible_paths(svg: SVG):
     group_masks = []
     for i, group in enumerate(svg.svg_path_groups):
         group_shapely = group.to_shapely()
-        
+
         # Create a mask for the current group
         mask = np.zeros((mask_size, mask_size), dtype=np.uint8)
-        
+
         # Rasterize the shapely geometry onto the mask
         features.rasterize(
             [(group_shapely, 1)],
@@ -239,23 +244,23 @@ def remove_invisible_paths(svg: SVG):
             all_touched=True,
             dtype=np.uint8
         )
-        
+
         group_masks.append(mask)
 
     new_path_groups = []
     for i, group in enumerate(svg.svg_path_groups):
         group_mask = group_masks[i]
-        
+
         unblocked_mask = group_mask.copy()
         for j in range(i + 1, len(group_masks)):
             unblocked_mask = np.logical_and(unblocked_mask, np.logical_not(group_masks[j]))
-        
+
         # This group is completely blocked, skip it
         if np.sum(unblocked_mask) < 5:
             continue
-        
+
         new_path_groups.append(group)
-    
+
     # Update the SVG object with the new path groups
     svg.svg_path_groups = new_path_groups
     return svg
@@ -302,7 +307,8 @@ def load_model(model_id, controlnet_id=None, clip_skip=2):
 
 
 def prompt_template(cfg):
-    prompt = "children's coloring book image of {}, lineal color, simple drawing, plain, minimalistic, best quality, flat 2d illustration, cartoon style".format(cfg.prompt)
+    prompt = "children's coloring book image of {}, lineal color, simple drawing, plain, minimalistic, best quality, flat 2d illustration, cartoon style".format(
+        cfg.prompt)
 
     negative_prompt = "black outline, black strok, NSFW, logo, text, blurry, low quality, bad anatomy, sketches, lowres, normal quality, monochrome, grayscale, worstquality, signature, watermark, cropped, bad proportions, out of focus, usemame, Multiple people, bad body, long body, long neck, deformed, mutated, mutation, ugly, disfigured, poorly drawn face, skin blemishes, skin spots, acnes, missing limb, malformed limbs, floating limbs, disconnected limbs, extra limb, extra arms, mutated hands, poorly drawn hands, malformed hands, mutated hands and fingers, bad hands, missing fingers, fused fingers, too many fingers, extra legs, bad feet, cross-eyed"
 
@@ -353,11 +359,11 @@ def detail_enhancement(cfg, svg_cleaned_path, target_image_path, index=1):
         ).images
 
         for i, output_sd in enumerate(output_images):
-            output_sd.save(f"{output_folder}/target_{i+1}.png")
+            output_sd.save(f"{output_folder}/target_{i + 1}.png")
             # save the target image
             if i + 1 == index:
                 output_sd.save(target_image_path)
-        
+
         output_grid = make_image_grid([original_image, control_image, *output_images], rows=2, cols=3)
         output_grid.save(f"{output_folder}/target_grid.png")
         original_image.save(f"{root_folder}/{target}_template.png")
@@ -378,21 +384,28 @@ def parse_arguments():
     parser.add_argument("--seed", type=int, default=0, help="random seed")
     parser.add_argument("--num_inference_steps", type=int, default=30, help="number of inference steps")
     parser.add_argument("--num_images_per_prompt", type=int, default=4, help="number of images per prompt")
-    parser.add_argument("--controlnet_conditioning_scale", type=float, default=0.5, help="controlnet conditioning scale")
+    parser.add_argument("--controlnet_conditioning_scale", type=float, default=0.5,
+                        help="controlnet conditioning scale")
     parser.add_argument("--guidance_scale", type=float, default=7.0, help="guidance scale")
     parser.add_argument("--clip_skip", type=int, default=2, help="clip skip")
     parser.add_argument("--strength", type=float, default=1.0, help="strength")
     parser.add_argument("--blur_radius", type=int, default=7, help="blur radius")
-    parser.add_argument("--diffusion_model_id", type=str, default="models/aamXLAnimeMix_v10.safetensors", help="diffusion model id")
+    parser.add_argument("--diffusion_model_id", type=str, default="models/aamXLAnimeMix_v10.safetensors",
+                        help="diffusion model id")
     parser.add_argument("--controlnet_id", type=str, default="xinsir/controlnet-tile-sdxl-1.0", help="controlnet id")
     # For SAM
-    parser.add_argument("--sam_checkpoint", type=str, default="./models/sam_vit_h_4b8939.pth", help="Path to the SAM checkpoint")
+    parser.add_argument("--sam_checkpoint", type=str, default="./models/sam_vit_h_4b8939.pth",
+                        help="Path to the SAM checkpoint")
     parser.add_argument("--model_type", type=str, default="vit_h", help="Model type for SAM")
     parser.add_argument("--thresh_iou", type=float, default=0.4, help="IoU threshold for selecting masks")
     parser.add_argument("--remove_outer_mask", type=bool, default=True, help="Whether to remove the outer mask")
-    parser.add_argument("--thresh_visible_area_ratio", type=float, default=0.2, help="Threshold of exposed area ratio for selecting masks")
-    parser.add_argument("--thresh_area_ub_ratio", type=float, default=0.5, help="Upper bound of area for selecting masks, e.g., 0.1 for 10% of the second largest mask in target")
-    parser.add_argument("--thresh_area_lb", type=float, default=30, help="Lower bound of area for selecting masks, absolute value")
+    parser.add_argument("--thresh_visible_area_ratio", type=float, default=0.2,
+                        help="Threshold of exposed area ratio for selecting masks")
+    parser.add_argument("--thresh_area_ub_ratio", type=float, default=0.5,
+                        help="Upper bound of area for selecting masks, e.g., 0.1 for 10% of the second largest mask in target")
+    parser.add_argument("--thresh_area_lb", type=float, default=30,
+                        help="Lower bound of area for selecting masks, absolute value")
+    parser.add_argument("--prompt", type=str, default="")
 
     args = parser.parse_args()
 
@@ -413,7 +426,8 @@ def parse_arguments():
         "min_mask_region_area": 30,
     }
 
-    args.prompt = get_prompt(args.target)
+    if args.prompt is None or args.prompt == "":
+        args.prompt = get_prompt(args.target)
     args.root_folder = f"{args.output_path}/{args.output_folder}"
     args.output_folder = f"{args.root_folder}/stage_2"
     args.sam_folder = f"{args.output_folder}/sam"
@@ -450,5 +464,9 @@ if __name__ == "__main__":
         mask_generator_coarse = initialize_sam(cfg.sam_checkpoint, cfg.sam_config_coarse, cfg.model_type, device)
         mask_generator_fine = initialize_sam(cfg.sam_checkpoint, cfg.sam_config_fine, cfg.model_type, device)
         sam_add_paths(cfg, svg_clean, target_image_path, final_svg_path, mask_generator_coarse, mask_generator_fine)
+        print(f"The best SVG is: {final_svg_path}")
+        print("Done!")
     else:
         print(f"Final SVG file {final_svg_path} already exists")
+        print(f"The best SVG is: {final_svg_path}")
+        print("Done!")

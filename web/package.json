@@ -1,0 +1,36 @@
+{
+  "dependencies": {
+    "@mui/material": "^5.11.13",
+    "@emotion/react": "^11.10.6",
+    "@emotion/styled": "^11.10.6",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "typescript": "^4.9.5",
+    "@types/react": "^18.0.33",
+    "react-scripts": "5.0.1"
+  },
+  "name": "web",
+  "version": "1.0.0",
+  "main": "index.js",
+  "devDependencies": {},
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

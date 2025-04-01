@@ -136,7 +136,7 @@ def latent_optimization(config, painter: Painter, model):
             path_img_mask = (path_img_grey < 1.0).float()
             path_img_masks.append(path_img_mask.squeeze(0))
         path_img_masks_init = torch.stack(path_img_masks)
-    
+
     optimized_shapes = None
     optimized_shape_groups = None
 
@@ -187,7 +187,8 @@ def latent_optimization(config, painter: Painter, model):
                 stroke_widths=painter.get_stroke_width_parameters(),
                 stroke_colors=painter.get_stroke_color_parameters()
             )
-            painter.save_svg(f"{config.svg_dir}/{config.target}_optim_{epoch + 1}.svg", optimized_shapes, optimized_shape_groups)
+            painter.save_svg(f"{config.svg_dir}/{config.target}_optim_{epoch + 1}.svg", optimized_shapes,
+                             optimized_shape_groups)
             # save image to PIL
             img = Image.fromarray((image.detach().cpu().numpy() * 255).astype(np.uint8))
             img.save(f"{config.png_dir}/image_{epoch + 1}.png")
@@ -237,7 +238,7 @@ def optimization(config, model, model_config):
         device=device,
     )
     painter.init_shapes()
-    painter.init_parameters(model, model_config)
+    painter.init_parameters(model, model_config, config)
 
     latent_inversion(config=config, painter=painter, model=model)
     shapes, shape_groups = latent_optimization(config, painter, model)
@@ -279,7 +280,7 @@ def point_optimization(config):
     )
     painter.init_shapes()
     painter.init_parameters()
-    
+
     painter_optimizer = PointPainterOptimizer(
         config=config,
         lr_config=config.lr_config_point,
@@ -288,7 +289,7 @@ def point_optimization(config):
         num_warmup_steps=config.num_warmup_steps
     )
     painter_optimizer.init_optimizers()
-    
+
     for epoch in range(config.epoch_point_optim):
         # render current image
         paths = painter.get_paths()
@@ -298,12 +299,13 @@ def point_optimization(config):
 
         mse_loss = torch.nn.functional.mse_loss(image_tensor, painter.target_img_tensor)
         loss_curvature = curvature_loss(paths)
-        curvature_loss_weight = curvature_loss_weight_start - (curvature_loss_weight_start - curvature_loss_weight_end) * epoch / config.epoch_point_optim
+        curvature_loss_weight = curvature_loss_weight_start - (
+                    curvature_loss_weight_start - curvature_loss_weight_end) * epoch / config.epoch_point_optim
         total_loss = config.mse_loss_weight_point * mse_loss + curvature_loss_weight * loss_curvature
 
         if epoch == 0 or (epoch + 1) % config.log_every == 0:
             logger.info(f"epoch: {epoch + 1}, total_loss: {total_loss.item():.6f}")
-            
+
             # Save intermediate results
             optimized_shapes, optimized_shape_groups = painter.update_color_and_stroke_width(
                 paths=paths,
@@ -311,8 +313,9 @@ def point_optimization(config):
                 stroke_widths=painter.get_stroke_width_parameters(),
                 stroke_colors=painter.get_stroke_color_parameters()
             )
-            painter.save_svg(f"{config.svg_point_dir}/{config.target}_point_optim_{epoch + 1}.svg", optimized_shapes, optimized_shape_groups)
-            
+            painter.save_svg(f"{config.svg_point_dir}/{config.target}_point_optim_{epoch + 1}.svg", optimized_shapes,
+                             optimized_shape_groups)
+
             # Save rendered image
             img = Image.fromarray((image.detach().cpu().numpy() * 255).astype(np.uint8))
             img.save(f"{config.png_point_dir}/image_point_optim_{epoch + 1}.png")
@@ -345,6 +348,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", type=str, required=True, help="The specific target to be optimized")
     parser.add_argument("--svg_folder", type=str, required=True, help="Folder name of input images and svg")
+    parser.add_argument("--system_path", type=str, default=".")
     parser.add_argument("--output_size", type=int, default=224, help="Output image size")
 
     # optimization parameters
@@ -357,7 +361,7 @@ def parse_arguments():
                         help="Whether to optimize stroke width during image optimization")
     parser.add_argument("--optim_stroke_color", action="store_true", default=True,
                         help="Whether to optimize stroke color during image optimization")
-    
+
     parser.add_argument("--initial_stroke_width", type=float, default=0.8,
                         help="Initial stroke width")
     parser.add_argument("--epoch_latent_inversion", type=int, default=500,
@@ -477,7 +481,8 @@ def parse_arguments():
     args.svg_point_dir = f"{args.output_folder}/point_svg"
     args.png_point_dir = f"{args.output_folder}/point_png"
 
-    for dir_path in [args.output_folder, args.svg_dir, args.png_dir, args.path_mask_dir, args.svg_point_dir, args.png_point_dir]:
+    for dir_path in [args.output_folder, args.svg_dir, args.png_dir, args.path_mask_dir, args.svg_point_dir,
+                     args.png_point_dir]:
         os.makedirs(dir_path, exist_ok=True)
 
     # Save config
@@ -521,8 +526,12 @@ if __name__ == "__main__":
 
     if not os.path.exists(config.svg_point_optim_path):
         point_optimization(config)
+        print(f"The best SVG is: {config.svg_point_optim_path}")
+        print("Done!")
     else:
         logger.info(f"Point optimized SVG already exists: {config.svg_point_optim_path}")
+        print(f"The best SVG is: {config.svg_point_optim_path}")
+        print("Done!")
 
     end_time = time.time()
     elapsed_time = end_time - start_time

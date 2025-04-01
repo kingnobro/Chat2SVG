@@ -158,3 +158,4 @@ sam/
 cmd_10.pth
 .DS_Store
 .idea
+web/node_modules

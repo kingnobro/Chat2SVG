@@ -39,8 +39,11 @@ def extract_code(response: str) -> str:
 
 
 def extract_svg(response: str) -> str:
-    if "```svg" in response:
+    if "```svg\n" in response:
         response = response.split("```svg\n")[1]
+        response = response.split("```")[0]
+    elif "```svg" in response:
+        response = response.split("```svg")[1]
         response = response.split("```")[0]
 
     response = response.rstrip()

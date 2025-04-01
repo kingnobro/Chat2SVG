@@ -1,4 +1,3 @@
-
 import os
 import yaml
 import base64
@@ -7,10 +6,10 @@ import requests
 from dotenv import load_dotenv
 from utils.util import read
 
-
 # Create a .env file in the project root directory and add your Anthropic API key as ANTHROPIC_API_KEY=<your_key>
 load_dotenv(dotenv_path=os.path.join("..", ".env"))
 api_key = os.getenv("OPENAI_API_KEY")
+
 
 class Session:
     def __init__(self, model, prompts_file) -> None:
@@ -20,10 +19,10 @@ class Session:
         self.past_responses: list[str] = []
 
         # Load the predefined prompts for the LLM
-        with open(f"../{prompts_file}.yaml") as file:
+        with open(f"{prompts_file}.yaml") as file:
             self.predefined_prompts: dict[str, str] = yaml.safe_load(file)
-    
-    def send(self, task: str, prompt_info: dict[str, str] | None = None, images: list[str] = [], file_path = None) -> str:
+
+    def send(self, task: str, prompt_info: dict[str, str] | None = None, images: list[str] = [], file_path=None) -> str:
         print(f"$ --- Sending task: {task}")
         self.past_tasks.append(task)
         prompt = self._make_prompt(task, prompt_info)
@@ -52,16 +51,20 @@ class Session:
                 prompt = prompt.replace(f"<{key.upper()}>", prompt_info[key])
 
         return prompt
-    
-    def _send(self, prompt: str, images: list[str]=[], file_path=None) -> str:
+
+    def _send(self, prompt: str, images: list[str] = [], file_path=None) -> str:
         payload = self._create_payload(prompt, images=images)
         if not os.path.exists(file_path):
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}"
             }
-            # response = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)  # Anthropic
-            response = requests.post("https://api.gptsapi.net/v1/chat/completions", headers=headers, json=payload)  # WildCard
+            print("Waiting for LLM to be generated")
+            # response = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload, timeout=(5, 120))  # Anthropic
+            # response = requests.post("https://aium.cc/v1/chat/completions", headers=headers, json=payload, timeout=(5, 120)) #If you are in mainland China, you can try aium.cc
+            response = requests.post("https://api.gptsapi.net/v1/chat/completions", headers=headers, json=payload,
+                                     timeout=(5, 120))  # WildCard
+            print(f"LLM response: {response.text}")
             try:
                 response = response.json()['choices'][0]['message']['content']
             except:
@@ -71,7 +74,7 @@ class Session:
         self.past_messages.append({"role": "assistant", "content": response})
         self.past_responses.append(response)
 
-    def _create_payload(self, prompt: str, images: list[str]=[]):
+    def _create_payload(self, prompt: str, images: list[str] = []):
         """Creates the payload for the API request."""
         messages = {
             "role": "user",
@@ -96,7 +99,7 @@ class Session:
                 }
             }
             messages["content"].append(image_content)
-        
+
         messages["content"].append({
             "type": "text",
             "text": prompt,

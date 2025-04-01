@@ -121,5 +121,24 @@ bash run.sh              # optimize SVG shapes (GPU consumption: less than 4GB)
 > 2. We proportionally scale up the loss weights (different from the paper) to ensure faster convergence.
 > 3. Results: `apple_optim_latent.svg` and `apple_optim_point.svg`
 
+
+## Web
+- Make sure you have downloaded all the required dependencies for each stage
+- Run the following script
+- Then open http://localhost:3000/
+
+```shell
+cd web/backend
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+
+cd web
+npm install
+npm start
+```
+
+Running effect:
+![title](./assets/web_demo.png)
+
 ## Automated Pipeline (For Comparison ⚖️)
 Code coming soon. Alternatively, you can enter each folder and run the `run.sh` script to generate all outputs.

@@ -14,41 +14,42 @@ from optim_utils.util import prettify
 from optim_utils.util_svg import get_cubic_segments_from_points
 
 
-def initialize_latent_vectors(model_config, model, painter):
+def initialize_latent_vectors(system_config, model_config, model, painter):
     """
     Initialize latent vectors for each path using a pre-trained VAE model.
     """
-    svg_path = "./vae_dataset/circle.svg"
+    svg_path = system_config.system_path + "/vae_dataset/circle.svg"
     png_path = svg_path.replace(".svg", ".png")
-    
+
     # Load and process SVG
     _, _, shapes, _ = pydiffvg.svg_to_scene(svg_path)
     points = painter.normalize(shapes[0].points)
-    assert len(points) == model_config.max_pts_len_thresh, f"Points length {len(points)} != {model_config.max_pts_len_thresh}"
-    
+    assert len(
+        points) == model_config.max_pts_len_thresh, f"Points length {len(points)} != {model_config.max_pts_len_thresh}"
+
     cubic_points = get_cubic_segments_from_points(points)
     cubic_points = cubic_points.view(1, -1, 2).unsqueeze(1).to(painter.device)
-    
+
     # Load and process PNG
     path_img = painter.load_image_tensor(png_path, size=(64, 64))
     path_img = path_img.mean(dim=1, keepdim=True)  # 1x3x64x64 to 1x1x64x64
-    
+
     # Generate latent vector using the VAE model
     model(args_enc=cubic_points, args_dec=cubic_points, ref_img=path_img)
     z = model.latent_z.detach().cpu().squeeze()
-    
+
     # Create a list of cloned latent vectors for each path
     return [z.clone().detach().to(painter.device).requires_grad_(True) for _ in range(painter.num_paths)]
 
 
 class Painter(nn.Module):
     def __init__(
-        self,
-        config,
-        image_path: str,
-        svg_path: str,
-        canvas_size: int = 224,
-        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+            self,
+            config,
+            image_path: str,
+            svg_path: str,
+            canvas_size: int = 224,
+            device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     ):
         super(Painter, self).__init__()
         self.config = config
@@ -74,12 +75,13 @@ class Painter(nn.Module):
 
     def init_shapes(self):
         """Initialize shapes from SVG file."""
-        assert self.svg_path is not None and pathlib.Path(self.svg_path).exists(), f"SVG file not found: {self.svg_path}"
+        assert self.svg_path is not None and pathlib.Path(
+            self.svg_path).exists(), f"SVG file not found: {self.svg_path}"
         # print(f"-> init svg from `{self.svg_path}` ...")
 
         canvas_width, canvas_height, self.shapes, self.shape_groups = self.load_svg(self.svg_path)
         assert canvas_width == self.canvas_width and canvas_height == self.canvas_height, f"SVG size mismatch: {canvas_width}x{canvas_height} != {self.canvas_width}x{self.canvas_height}"
-        
+
         self.num_paths = len(self.shapes)
         self.cur_shapes = self.shapes
         self.cur_shape_groups = self.shape_groups
@@ -91,7 +93,7 @@ class Painter(nn.Module):
         img = img.unsqueeze(0)  # convert img from HWC to NCHW
         img = img.permute(0, 3, 1, 2).to(self.device)  # NHWC -> NCHW
         return img
-    
+
     def get_path_images(self, step: int = 0):
         imgs = self.render_individual_path_warp(step)  # NHWC
         imgs = imgs[:, :, :, 3:4] * imgs[:, :, :, :3] + self.para_bg * (1 - imgs[:, :, :, 3:4])
@@ -125,24 +127,24 @@ class Painter(nn.Module):
             )
             _render = pydiffvg.RenderFunction.apply
             img = _render(self.canvas_width,  # width
-                        self.canvas_height,  # height
-                        2,  # num_samples_x
-                        2,  # num_samples_y
-                        seed,  # seed
-                        None,
-                        *scene_args)
+                          self.canvas_height,  # height
+                          2,  # num_samples_x
+                          2,  # num_samples_y
+                          seed,  # seed
+                          None,
+                          *scene_args)
             imgs.append(img)
 
             shape_group.shape_ids = old_shape_ids
 
         return torch.stack(imgs)
-    
-    def init_parameters(self, model, model_config):
+
+    def init_parameters(self, model, model_config, system_config):
         self.set_stroke_parameters()
         self.set_color_parameters()
         self.set_affine_parameters()
-        self.set_latent_parameters(model, model_config)
-    
+        self.set_latent_parameters(model, model_config, system_config)
+
     def store_optimized_parameters(self):
         """Store the current optimized parameters."""
         optimized_params = {
@@ -160,22 +162,26 @@ class Painter(nn.Module):
         for i, width in enumerate(optimized_params['stroke_width_vars']):
             if width < 0.1:
                 optimized_params['stroke_width_vars'][i] = torch.tensor(0.0, device=self.device)
-        
+
         return optimized_params
-    
+
     def load_optimized_parameters(self, optimized_params):
         """Load the stored optimized parameters for existing paths."""
         if optimized_params is None:
             return
 
-        assert len(optimized_params['latent_vectors']) <= self.num_paths, f"Number of paths mismatch: {len(optimized_params['latent_vectors'])} <= {self.num_paths}"
-        
+        assert len(optimized_params[
+                       'latent_vectors']) <= self.num_paths, f"Number of paths mismatch: {len(optimized_params['latent_vectors'])} <= {self.num_paths}"
+
         num_existing_paths = len(optimized_params['latent_vectors'])
         for i in range(num_existing_paths):
             self.latent_vectors[i] = optimized_params['latent_vectors'][i].clone().detach().requires_grad_(True)
-            self.color_vars[i] = optimized_params['color_vars'][i].clone().detach().requires_grad_(self.config.optim_color)
-            self.stroke_width_vars[i] = optimized_params['stroke_width_vars'][i].clone().detach().requires_grad_(self.config.optim_stroke_width)
-            self.stroke_color_vars[i] = optimized_params['stroke_color_vars'][i].clone().detach().requires_grad_(self.config.optim_stroke_color)
+            self.color_vars[i] = optimized_params['color_vars'][i].clone().detach().requires_grad_(
+                self.config.optim_color)
+            self.stroke_width_vars[i] = optimized_params['stroke_width_vars'][i].clone().detach().requires_grad_(
+                self.config.optim_stroke_width)
+            self.stroke_color_vars[i] = optimized_params['stroke_color_vars'][i].clone().detach().requires_grad_(
+                self.config.optim_stroke_color)
             self.translation_x[i] = optimized_params['translation_x'][i].clone().detach().requires_grad_(True)
             self.translation_y[i] = optimized_params['translation_y'][i].clone().detach().requires_grad_(True)
             self.rotation_angles[i] = optimized_params['rotation_angles'][i].clone().detach().requires_grad_(True)
@@ -193,7 +199,7 @@ class Painter(nn.Module):
                 device=self.device
             )
             self.stroke_color_vars.append(group.stroke_color)
-        
+
         # by default, diffvg set stroke width to 0.5; we set it to `initial_stroke_width`
         for shape in self.cur_shapes:
             shape.stroke_width = torch.tensor(
@@ -202,18 +208,19 @@ class Painter(nn.Module):
                 device=self.device
             )
             self.stroke_width_vars.append(shape.stroke_width)
-    
+
     def set_color_parameters(self):
         self.color_vars = []
         for group in self.cur_shape_groups:
             group.fill_color.requires_grad = self.config.optim_color
             self.color_vars.append(group.fill_color)
-    
-    def set_latent_parameters(self, model, model_config):
-        self.latent_vectors = initialize_latent_vectors(model_config, model, self)
+
+    def set_latent_parameters(self, model, model_config, system_config):
+        self.latent_vectors = initialize_latent_vectors(system_config, model_config, model, self)
 
     def set_affine_parameters(self):
-        self.rotation_angles = [torch.tensor(0.0, device=self.device, requires_grad=True) for _ in range(self.num_paths)]
+        self.rotation_angles = [torch.tensor(0.0, device=self.device, requires_grad=True) for _ in
+                                range(self.num_paths)]
         self.scale_factors = [torch.tensor(0.2, device=self.device, requires_grad=True) for _ in range(self.num_paths)]
         self.translation_x = [torch.tensor(0.0, device=self.device, requires_grad=True) for _ in range(self.num_paths)]
         self.translation_y = [torch.tensor(0.0, device=self.device, requires_grad=True) for _ in range(self.num_paths)]
@@ -229,7 +236,7 @@ class Painter(nn.Module):
 
     def get_bg_parameters(self):
         return self.para_bg
-    
+
     def get_latent_parameters(self):
         return self.latent_vectors
 
@@ -245,10 +252,10 @@ class Painter(nn.Module):
     def get_translationY_parameters(self):
         return self.translation_y
 
-    def save_svg(self, filepath, shapes, shape_groups, use_gamma = False):
+    def save_svg(self, filepath, shapes, shape_groups, use_gamma=False):
         def format_float(value):
             return f"{value:.8f}"
-        
+
         root = etree.Element('svg')
         root.set('version', '1.1')
         root.set('xmlns', 'http://www.w3.org/2000/svg')
@@ -269,19 +276,19 @@ class Painter(nn.Module):
             feFuncR = etree.SubElement(gamma, 'feFuncR')
             feFuncR.set('type', 'gamma')
             feFuncR.set('amplitude', str(1))
-            feFuncR.set('exponent', str(1/2.2))
+            feFuncR.set('exponent', str(1 / 2.2))
             feFuncG = etree.SubElement(gamma, 'feFuncG')
             feFuncG.set('type', 'gamma')
             feFuncG.set('amplitude', str(1))
-            feFuncG.set('exponent', str(1/2.2))
+            feFuncG.set('exponent', str(1 / 2.2))
             feFuncB = etree.SubElement(gamma, 'feFuncB')
             feFuncB.set('type', 'gamma')
             feFuncB.set('amplitude', str(1))
-            feFuncB.set('exponent', str(1/2.2))
+            feFuncB.set('exponent', str(1 / 2.2))
             feFuncA = etree.SubElement(gamma, 'feFuncA')
             feFuncA.set('type', 'gamma')
             feFuncA.set('amplitude', str(1))
-            feFuncA.set('exponent', str(1/2.2))
+            feFuncA.set('exponent', str(1 / 2.2))
             g.set('style', 'filter:url(#gamma)')
 
         # Store color
@@ -301,7 +308,7 @@ class Painter(nn.Module):
                         stop = etree.SubElement(color, 'stop')
                         stop.set('offset', str(offsets[j]))
                         c = lg.stop_colors[j, :]
-                        stop.set('stop-color', 'rgb({}, {}, {})'.format(\
+                        stop.set('stop-color', 'rgb({}, {}, {})'.format( \
                             int(255 * c[0]), int(255 * c[1]), int(255 * c[2])))
                         stop.set('stop-opacity', '{}'.format(c[3]))
 
@@ -320,7 +327,8 @@ class Painter(nn.Module):
             elif isinstance(shape, pydiffvg.Polygon):
                 shape_node = etree.SubElement(g, 'polygon')
                 points = shape.points.data.cpu().numpy()
-                path_str = ' '.join(f"{format_float(points[j, 0])} {format_float(points[j, 1])}" for j in range(shape.points.shape[0]))
+                path_str = ' '.join(
+                    f"{format_float(points[j, 0])} {format_float(points[j, 1])}" for j in range(shape.points.shape[0]))
                 shape_node.set('points', path_str)
             elif isinstance(shape, pydiffvg.Path):
                 shape_node = etree.SubElement(g, 'path')
@@ -357,7 +365,7 @@ class Painter(nn.Module):
                 shape_node.set('rx', format_float(shape.radius[0].item()))
                 shape_node.set('ry', format_float(shape.radius[1].item()))
             else:
-                assert(False)
+                assert (False)
 
             # ignore thin strokes
             stroke_width = shape.stroke_width.data.cpu().item()
@@ -369,7 +377,7 @@ class Painter(nn.Module):
                     shape_node.set('fill', 'url(#shape_{}_fill)'.format(i))
                 else:
                     c = shape_group.fill_color.data.cpu().numpy()
-                    shape_node.set('fill', 'rgb({}, {}, {})'.format(\
+                    shape_node.set('fill', 'rgb({}, {}, {})'.format( \
                         int(255 * c[0]), int(255 * c[1]), int(255 * c[2])))
                     shape_node.set('opacity', str(c[3]))
             else:
@@ -379,7 +387,7 @@ class Painter(nn.Module):
                     shape_node.set('stroke', 'url(#shape_{}_stroke)'.format(i))
                 else:
                     c = shape_group.stroke_color.data.cpu().numpy()
-                    shape_node.set('stroke', 'rgb({}, {}, {})'.format(\
+                    shape_node.set('stroke', 'rgb({}, {}, {})'.format( \
                         int(255 * c[0]), int(255 * c[1]), int(255 * c[2])))
                     shape_node.set('stroke-opacity', str(c[3]))
                 shape_node.set('stroke-linecap', 'round')
@@ -394,7 +402,7 @@ class Painter(nn.Module):
 
     def load_image_tensor(self, image_path, size):
         target = Image.open(image_path)
-        
+
         if target.mode == "RGBA":
             # Composite the image onto a white background
             background = Image.new("RGBA", target.size, "WHITE")
@@ -410,7 +418,7 @@ class Painter(nn.Module):
         # Convert the image to a tensor
         transform = transforms.ToTensor()
         image_tensor = transform(target).unsqueeze(0).to(self.device)
-        
+
         return image_tensor
 
     def get_cubic_curves(self, path: pydiffvg.Path) -> torch.Tensor:
@@ -424,7 +432,7 @@ class Painter(nn.Module):
 
         # Calculate starting indices for each cubic curve
         indices = torch.arange(0, len(num_control_points) * 3, step=3, device=points.device)
-        
+
         # Gather the four points for each cubic curve
         point1 = points[indices]
         point2 = points[indices + 1]
@@ -461,7 +469,7 @@ class Painter(nn.Module):
             use_affine_norm=False
         )
         return transformed_points
-    
+
     def update_color_and_stroke_width(self, paths, fill_colors, stroke_widths=None, stroke_colors=None):
         shapes = []
         shape_groups = []
@@ -487,17 +495,18 @@ class Painter(nn.Module):
             transformed_points = self.apply_affine_transform(points, idx)
             paths.append(self.convert_points_to_path(transformed_points))
 
-        optimized_shapes, optimized_groups = self.update_color_and_stroke_width(paths=paths, fill_colors=self.color_vars)
+        optimized_shapes, optimized_groups = self.update_color_and_stroke_width(paths=paths,
+                                                                                fill_colors=self.color_vars)
         return optimized_shapes, optimized_groups
-    
+
     def render_image(self, paths):
         canvas_width, canvas_height = self.config.output_size, self.config.output_size
         render_function = pydiffvg.RenderFunction.apply
 
         shapes, shape_groups = self.update_color_and_stroke_width(
-            paths, 
-            fill_colors=self.color_vars, 
-            stroke_widths=self.stroke_width_vars, 
+            paths,
+            fill_colors=self.color_vars,
+            stroke_widths=self.stroke_width_vars,
             stroke_colors=self.stroke_color_vars
         )
 
@@ -505,9 +514,9 @@ class Painter(nn.Module):
             canvas_width, canvas_height, shapes, shape_groups
         )
         rendered_image = render_function(
-            canvas_width, canvas_height, 
+            canvas_width, canvas_height,
             2, 2,  # num_samples_x, num_samples_y
-            0,     # seed
+            0,  # seed
             None,  # background
             *scene_args
         )
@@ -535,14 +544,15 @@ class Painter(nn.Module):
         target_img = target_img.to(self.device)
         return target_img
 
+
 class PointPainter(Painter):
     def __init__(
-        self,
-        config,
-        image_path: str,
-        svg_path: str,
-        canvas_size: int = 224,
-        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+            self,
+            config,
+            image_path: str,
+            svg_path: str,
+            canvas_size: int = 224,
+            device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     ):
         super().__init__(config, image_path, svg_path, canvas_size, device)
         self.point_vars = []
@@ -553,7 +563,7 @@ class PointPainter(Painter):
             path.id = i + id_delta  # set point id
             path.points.requires_grad = True
             self.point_vars.append(path.points)
-    
+
     def set_stroke_parameters(self):
         """
         load stroke parameters from svg, instead of using the `initial_stroke_width`
@@ -578,13 +588,13 @@ class PointPainter(Painter):
                 device=self.device
             )
             self.stroke_width_vars.append(shape.stroke_width)
-    
+
     def get_point_parameters(self):
         return self.point_vars
-    
+
     def get_paths(self):
         return self.cur_shapes
-    
+
     def init_parameters(self):
         self.set_points_parameters()
         self.set_stroke_parameters()
@@ -623,15 +633,24 @@ class PainterOptimizer:
         optimizer_latent = torch.optim.Adam(params_latent, lr=self.lr_base['latent'], betas=(0.9, 0.9), eps=1e-6)
         optimizer_color = torch.optim.Adam(params_color, lr=self.lr_base['color'], betas=(0.9, 0.9), eps=1e-6)
         optimizer_affine = torch.optim.Adam(params_affine, betas=(0.9, 0.9), eps=1e-6)
-        optimizer_stroke_width = torch.optim.Adam(params_stroke_width, lr=self.lr_base['stroke_width'], betas=(0.9, 0.9), eps=1e-6)
-        optimizer_stroke_color = torch.optim.Adam(params_stroke_color, lr=self.lr_base['stroke_color'], betas=(0.9, 0.9), eps=1e-6)
+        optimizer_stroke_width = torch.optim.Adam(params_stroke_width, lr=self.lr_base['stroke_width'],
+                                                  betas=(0.9, 0.9), eps=1e-6)
+        optimizer_stroke_color = torch.optim.Adam(params_stroke_color, lr=self.lr_base['stroke_color'],
+                                                  betas=(0.9, 0.9), eps=1e-6)
 
         # Schedulers
-        scheduler_latent = get_cosine_schedule_with_warmup(optimizer_latent, num_warmup_steps=self.num_warmup_steps, num_training_steps=self.num_training_steps)
-        scheduler_color = get_cosine_schedule_with_warmup(optimizer_color, num_warmup_steps=self.num_warmup_steps, num_training_steps=self.num_training_steps)
-        scheduler_affine = get_cosine_schedule_with_warmup(optimizer_affine, num_warmup_steps=self.num_warmup_steps, num_training_steps=self.num_training_steps)
-        scheduler_stroke_width = get_cosine_schedule_with_warmup(optimizer_stroke_width, num_warmup_steps=self.num_warmup_steps, num_training_steps=self.num_training_steps)
-        scheduler_stroke_color = get_cosine_schedule_with_warmup(optimizer_stroke_color, num_warmup_steps=self.num_warmup_steps, num_training_steps=self.num_training_steps)
+        scheduler_latent = get_cosine_schedule_with_warmup(optimizer_latent, num_warmup_steps=self.num_warmup_steps,
+                                                           num_training_steps=self.num_training_steps)
+        scheduler_color = get_cosine_schedule_with_warmup(optimizer_color, num_warmup_steps=self.num_warmup_steps,
+                                                          num_training_steps=self.num_training_steps)
+        scheduler_affine = get_cosine_schedule_with_warmup(optimizer_affine, num_warmup_steps=self.num_warmup_steps,
+                                                           num_training_steps=self.num_training_steps)
+        scheduler_stroke_width = get_cosine_schedule_with_warmup(optimizer_stroke_width,
+                                                                 num_warmup_steps=self.num_warmup_steps,
+                                                                 num_training_steps=self.num_training_steps)
+        scheduler_stroke_color = get_cosine_schedule_with_warmup(optimizer_stroke_color,
+                                                                 num_warmup_steps=self.num_warmup_steps,
+                                                                 num_training_steps=self.num_training_steps)
 
         # Store optimizers and schedulers
         self.optimizers = {
@@ -649,7 +668,6 @@ class PainterOptimizer:
             'stroke_color': scheduler_stroke_color,
         }
 
-
     def update_lr(self):
         for scheduler in self.schedulers.values():
             scheduler.step()
@@ -663,22 +681,22 @@ class PainterOptimizer:
             for color in self.renderer.get_color_parameters():
                 if color.grad is not None:
                     color.grad[3] = torch.zeros_like(color.grad[3])
-            
+
             # for color in self.renderer.get_stroke_color_parameters():
             #     if color.grad is not None:
             #         color.grad[3] = torch.zeros_like(color.grad[3])
 
         for optimizer in self.optimizers.values():
             optimizer.step()
-        
+
         if self.config.optim_stroke_width:
             for stroke_width in self.renderer.get_stroke_width_parameters():
                 stroke_width.data.clamp_(0.0, 2.0)
-        
+
         if self.config.optim_color:
             for color in self.renderer.get_color_parameters():
                 color.data.clamp_(0.0, 1.0)
-        
+
         if self.config.optim_stroke_color:
             for color in self.renderer.get_stroke_color_parameters():
                 color.data.clamp_(0.0, 1.0)
@@ -703,14 +721,22 @@ class PointPainterOptimizer(PainterOptimizer):
         # Optimizers
         optimizer_points = torch.optim.Adam(params_points, lr=self.lr_base['points'], betas=(0.9, 0.9), eps=1e-6)
         optimizer_color = torch.optim.Adam(params_color, lr=self.lr_base['color'], betas=(0.9, 0.9), eps=1e-6)
-        optimizer_stroke_width = torch.optim.Adam(params_stroke_width, lr=self.lr_base['stroke_width'], betas=(0.9, 0.9), eps=1e-6)
-        optimizer_stroke_color = torch.optim.Adam(params_stroke_color, lr=self.lr_base['stroke_color'], betas=(0.9, 0.9), eps=1e-6)
+        optimizer_stroke_width = torch.optim.Adam(params_stroke_width, lr=self.lr_base['stroke_width'],
+                                                  betas=(0.9, 0.9), eps=1e-6)
+        optimizer_stroke_color = torch.optim.Adam(params_stroke_color, lr=self.lr_base['stroke_color'],
+                                                  betas=(0.9, 0.9), eps=1e-6)
 
         # Schedulers
-        scheduler_points = get_cosine_schedule_with_warmup(optimizer_points, num_warmup_steps=self.num_warmup_steps, num_training_steps=self.num_training_steps)
-        scheduler_color = get_cosine_schedule_with_warmup(optimizer_color, num_warmup_steps=self.num_warmup_steps, num_training_steps=self.num_training_steps)
-        scheduler_stroke_width = get_cosine_schedule_with_warmup(optimizer_stroke_width, num_warmup_steps=self.num_warmup_steps, num_training_steps=self.num_training_steps)
-        scheduler_stroke_color = get_cosine_schedule_with_warmup(optimizer_stroke_color, num_warmup_steps=self.num_warmup_steps, num_training_steps=self.num_training_steps)
+        scheduler_points = get_cosine_schedule_with_warmup(optimizer_points, num_warmup_steps=self.num_warmup_steps,
+                                                           num_training_steps=self.num_training_steps)
+        scheduler_color = get_cosine_schedule_with_warmup(optimizer_color, num_warmup_steps=self.num_warmup_steps,
+                                                          num_training_steps=self.num_training_steps)
+        scheduler_stroke_width = get_cosine_schedule_with_warmup(optimizer_stroke_width,
+                                                                 num_warmup_steps=self.num_warmup_steps,
+                                                                 num_training_steps=self.num_training_steps)
+        scheduler_stroke_color = get_cosine_schedule_with_warmup(optimizer_stroke_color,
+                                                                 num_warmup_steps=self.num_warmup_steps,
+                                                                 num_training_steps=self.num_training_steps)
 
         # Store optimizers and schedulers
         self.optimizers = {
